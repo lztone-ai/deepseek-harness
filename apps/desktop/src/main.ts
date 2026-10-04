@@ -36,6 +36,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
+import { PRODUCT_UI_HOSTNAME, productUiUrl, resolveProductUiDirectory } from './product-ui.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { openWelcomeWindow } from './welcome-window.ts'
@@ -319,6 +320,7 @@ async function main(): Promise<void> {
   const resources = runtimeResources()
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
+  const productUiDirectory = resolveProductUiDirectory(process.env, app.isPackaged, process.resourcesPath)
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
@@ -399,6 +401,8 @@ async function main(): Promise<void> {
   })
   const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
   const applicationUrl = `${SCHEME}://app/`
+  // The product layer can own the workspace entry document; the Web application stays reachable.
+  const workspaceUrl = productUiDirectory === undefined ? applicationUrl : productUiUrl()
   let hostUrl: string | undefined
   let hostCookie: string | undefined
   const browserGuests = new DesktopBrowserGuests(() => hostUrl)
@@ -550,7 +554,7 @@ async function main(): Promise<void> {
           if (quitting) return
           // A replacement Host can have a new port, cookie, or boot injections even at the same URL.
           navigation = undefined
-          await navigateMain(applicationUrl)
+          await navigateMain(workspaceUrl)
           if (backend.host !== undefined) updateJournal?.action('workspace-ready')
         })
         workspaceRecovery = recovery
@@ -572,7 +576,7 @@ async function main(): Promise<void> {
 
   const reconcileBackend = (): Promise<void> => {
     startup ??= (async () => {
-      await navigateMain(applicationUrl)
+      await navigateMain(workspaceUrl)
       await backend.start(async () => {
         await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
       })
@@ -669,6 +673,11 @@ async function main(): Promise<void> {
     const url = new URL(request.url)
     // Shell-owned documents live in the application bundle and never pass through the Host.
     if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
+    if (url.hostname === PRODUCT_UI_HOSTNAME) {
+      return productUiDirectory === undefined
+        ? Promise.resolve(new Response(null, { status: 404 }))
+        : serveWebDocument(request, productUiDirectory)
+    }
     if (url.hostname === 'app') {
       if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
         || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
@@ -1119,7 +1128,7 @@ async function main(): Promise<void> {
   const enterWorkspace = async ({ activate = true }: { activate?: boolean } = {}): Promise<void> => {
     if (quitting) return
     const window = mainWindow ?? createMainWindow()
-    await navigateMain(applicationUrl)
+    await navigateMain(workspaceUrl)
     if (isQuitting() || recovery.active || window.isDestroyed()) return
     if (activate) window.show()
     else window.showInactive()
@@ -1221,7 +1230,7 @@ async function main(): Promise<void> {
     const window = welcomeWindow ?? mainWindow
     if (window === undefined || window.isDestroyed()) {
       try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
-      void (backend.state.phase === 'ready' ? openInitialWindow() : navigateMain(applicationUrl)).catch((error: unknown) => { reportFatal(error, 'main') })
+      void (backend.state.phase === 'ready' ? openInitialWindow() : navigateMain(workspaceUrl)).catch((error: unknown) => { reportFatal(error, 'main') })
       return
     }
     // Startup and sign-out select the visible window before activation may reveal the workspace.
