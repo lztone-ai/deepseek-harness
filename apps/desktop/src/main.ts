@@ -36,7 +36,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
-import { PRODUCT_UI_HOSTNAME, productUiUrl, resolveProductUiDirectory } from './product-ui.ts'
+import { PRODUCT_UI_HOSTNAME, productUiUrl, resolveProductDataDirectory, resolveProductUiDirectory } from './product-ui.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { openWelcomeWindow } from './welcome-window.ts'
@@ -321,6 +321,7 @@ async function main(): Promise<void> {
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
   const productUiDirectory = resolveProductUiDirectory(process.env, app.isPackaged, process.resourcesPath)
+  const productDataDirectory = resolveProductDataDirectory(process.env, app.isPackaged, process.resourcesPath)
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
@@ -674,6 +675,11 @@ async function main(): Promise<void> {
     // Shell-owned documents live in the application bundle and never pass through the Host.
     if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
     if (url.hostname === PRODUCT_UI_HOSTNAME) {
+      if (url.pathname === '/data' || url.pathname.startsWith('/data/')) {
+        if (productDataDirectory === undefined) return Promise.resolve(new Response(null, { status: 404 }))
+        const nested = new URL(`${SCHEME}://${PRODUCT_UI_HOSTNAME}${url.pathname.slice('/data'.length) || '/'}${url.search}`)
+        return serveWebDocument(new Request(nested, request), productDataDirectory)
+      }
       return productUiDirectory === undefined
         ? Promise.resolve(new Response(null, { status: 404 }))
         : serveWebDocument(request, productUiDirectory)

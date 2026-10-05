@@ -32,3 +32,22 @@ export function resolveProductUiDirectory(
 export function productUiUrl(): string {
   return `${SCHEME}://${PRODUCT_UI_HOSTNAME}/`
 }
+
+/**
+ * Resolve the product data directory. Packaged builds read the signed product
+ * resource layer (`Resources/toneclaw/data`); development builds opt in with an
+ * explicit directory override. Host-side product plugins publish snapshots here.
+ * @param env - Launching process environment.
+ * @param isPackaged - Whether the Desktop application runs from an installed bundle.
+ * @param resourcesPath - Electron resources directory of packaged builds.
+ * @returns Data directory, or undefined when no product data applies.
+ */
+export function resolveProductDataDirectory(
+  env: NodeJS.ProcessEnv,
+  isPackaged: boolean,
+  resourcesPath: string,
+): string | undefined {
+  const candidate = env.DSH_DESKTOP_PRODUCT_DATA ?? (isPackaged ? join(resourcesPath, 'toneclaw', 'data') : undefined)
+  if (candidate === undefined || !existsSync(candidate)) return undefined
+  return candidate
+}

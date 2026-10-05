@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PRODUCT_UI_HOSTNAME, productUiUrl, resolveProductUiDirectory } from '../src/product-ui.ts'
+import { PRODUCT_UI_HOSTNAME, productUiUrl, resolveProductDataDirectory, resolveProductUiDirectory } from '../src/product-ui.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -33,4 +33,15 @@ it('requires an explicit override in development and defaults packaged builds to
 
 it('exposes the product UI hostname on the Desktop scheme', () => {
   expect(productUiUrl()).toBe(`dsh-app://${PRODUCT_UI_HOSTNAME}/`)
+})
+
+it('resolves the product data directory from an override or packaged resources', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-product-data-'))
+  roots.push(root)
+  await mkdir(join(root, 'data'), { recursive: true })
+  await mkdir(join(root, 'toneclaw', 'data'), { recursive: true })
+  expect(resolveProductDataDirectory({ DSH_DESKTOP_PRODUCT_DATA: join(root, 'data') }, false, root)).toBe(join(root, 'data'))
+  expect(resolveProductDataDirectory({}, false, root)).toBeUndefined()
+  expect(resolveProductDataDirectory({ DSH_DESKTOP_PRODUCT_DATA: join(root, 'missing') }, true, root)).toBeUndefined()
+  expect(resolveProductDataDirectory({}, true, root)).toBe(join(root, 'toneclaw', 'data'))
 })
